@@ -57,13 +57,13 @@ def train_one_epoch(model, optimizer, lr_scheduler, data_loader, device, epoch, 
 def _get_cache_path(filepath):
     import hashlib
     h = hashlib.sha1(filepath.encode()).hexdigest()
-    cache_path = os.path.join("~", ".torch", "vision", "datasets", "kinetics", h[:10] + ".pt")
-    cache_path = os.path.expanduser(cache_path)
+    cache_path = os.path.join("~", ".torch", "vision", "datasets", "kinetics", h[:10] + ".pt") # set the path for caching dataset
+    cache_path = os.path.expanduser(cache_path) # convert the path format `~`-> home
     return cache_path
 
 def collate_fn(batch):
     # remove audio from the batch
-    batch = [d[0] for d in batch]
+    batch = [d[0] for d in batch] # d = [video, audio, label], data.kinetics.__getitem__()
     return default_collate(batch)
 
 def main(args):
@@ -72,25 +72,28 @@ def main(args):
     print("torchvision version: ", torchvision.__version__)
 
     device = torch.device(args.device)
-    torch.backends.cudnn.benchmark = True
+    torch.backends.cudnn.benchmark = True # A bool that, if True, causes cuDNN to benchmark multiple convolution algorithms and select the fastest. It needs some running time to get the fastest algorithms.
 
     print("Preparing training dataloader")
-    traindir = os.path.join(args.data_path, 'train_256' if not args.fast_test else 'val_256')
+    traindir = os.path.join(args.data_path, 'train_256' if not args.fast_test else 'val_256') # the path of dataset files
     valdir = os.path.join(args.data_path, 'val_256')
 
     st = time.time()
-    cache_path = _get_cache_path(traindir)
+    cache_path = _get_cache_path(traindir) # get the cache path of dataset by the path of dataset files name
 
-    transform_train = utils.augs.get_train_transforms(args)
+    transform_train = utils.augs.get_train_transforms(args) # a function for porcessing each image to some patches
 
     def make_dataset(is_train, cached=None):
+        """
+        return a instance of Dataset.
+        """
         _transform = transform_train if is_train else transform_test
 
         if 'kinetics' in args.data_path.lower():
             return Kinetics400(
                 traindir if is_train else valdir,
-                frames_per_clip=args.clip_len,
-                step_between_clips=1,
+                frames_per_clip=args.clip_len, # set 4, but default 8
+                step_between_clips=1, # ???
                 transform=transform_train,
                 extensions=('mp4'),
                 frame_rate=args.frame_skip,

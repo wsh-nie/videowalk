@@ -57,6 +57,9 @@ class Kinetics400(VisionDataset):
             frame_rate,
             _precomputed_metadata,
         )
+        """
+        VideoClips: https://github.com/pytorch/vision/blob/5f0edb97b46e5bff71dc19dedef05c5396eeaea2/torchvision/datasets/video_utils.py#L75
+        """
         self.transform = transform
 
     def __len__(self):
