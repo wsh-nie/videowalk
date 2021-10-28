@@ -48,6 +48,10 @@ class Kinetics400(VisionDataset):
         class_to_idx = {classes[i]: i for i in range(len(classes))}
         
         self.samples = make_dataset(self.root, class_to_idx, extensions, is_valid_file=None)
+        """
+        make_dataset: https://github.com/pytorch/vision/blob/5f0edb97b46e5bff71dc19dedef05c5396eeaea2/torchvision/datasets/folder.py#L48
+            Generates a list of samples of a form (path_to_sample, class).
+        """
         self.classes = classes
         video_list = [x[0] for x in self.samples]
         self.video_clips = VideoClips(
@@ -59,17 +63,18 @@ class Kinetics400(VisionDataset):
         )
         """
         VideoClips: https://github.com/pytorch/vision/blob/5f0edb97b46e5bff71dc19dedef05c5396eeaea2/torchvision/datasets/video_utils.py#L75
+        a video will split to some clips, the number of frames for each sub clips is `framers_per_clip`, and the `step_between_clips` is the distance frames for near subclips
         """
         self.transform = transform
 
     def __len__(self):
-        return self.video_clips.num_clips()
+        return self.video_clips.num_clips() # return the number of all subclips for all videos
 
     def __getitem__(self, idx):
         success = False
         while not success:
             try:
-                video, audio, info, video_idx = self.video_clips.get_clip(idx)
+                video, audio, info, video_idx = self.video_clips.get_clip(idx) # get subclips 
                 success = True
             except:
                 print('skipped idx', idx)
