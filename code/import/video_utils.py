@@ -43,7 +43,7 @@ def unfold(tensor, size, step, dilation=1):
     new_size = ((numel - (dilation * (size - 1) + 1)) // step + 1, size)
     if new_size[0] < 1:
         new_size = (0, size)
-    return torch.as_strided(tensor, new_size, new_stride)
+    return torch.as_strided(tensor, new_size, new_stride) # get a view of new_size for tensor
 
 
 class _VideoTimestampsDataset(object):
@@ -62,7 +62,7 @@ class _VideoTimestampsDataset(object):
         return len(self.video_paths)
 
     def __getitem__(self, idx):
-        return read_video_timestamps(self.video_paths[idx])
+        return read_video_timestamps(self.video_paths[idx]) # return video[idx].__timestamp_list__ and video[idx]._average_fps
 
 
 def _collate_fn(x):
@@ -126,12 +126,16 @@ class VideoClips(object):
         self._audio_channels = _audio_channels
 
         if _precomputed_metadata is None:
-            self._compute_frame_pts()
+            self._compute_frame_pts() # get self.video_pts and self.video_fps by loading all video.
         else:
-            self._init_from_metadata(_precomputed_metadata)
+            self._init_from_metadata(_precomputed_metadata) # get two lists by caching parameters
         self.compute_clips(clip_length_in_frames, frames_between_clips, frame_rate)
 
     def _compute_frame_pts(self):
+        """
+        get self.video_pts and self.video_fps by loading all video.
+        Each element of video_pts is a tensor of frames timestamps, and the element of video_fps is a number of video average fps.
+        """
         self.video_pts = []
         self.video_fps = []
 
@@ -199,6 +203,18 @@ class VideoClips(object):
 
     @staticmethod
     def compute_clips_for_video(video_pts, num_frames, step, fps, frame_rate):
+        """
+        Compute all consecutive sequences of clips from video_pts for each video.
+        Always returns clips of size `num_frames`, meaning that the
+        last few frames in a video can potentially be dropped.
+
+        Args:
+            video_pts (tensor: dim=1): a 1 dimension tensor of frames timestamps for the video
+            num_frames (int): number of frames for the clip: clip_length_in_frames
+            step (int): distance between two clips: frames_between_clips
+            fps (float): fps for the video
+            frame_rate (int, optional): The frame rate
+        """
         if fps is None:
             # if for some reason the video doesn't have fps (because doesn't have a video stream)
             # set the fps to 1. The value doesn't matter, because video_pts is empty anyway
@@ -208,7 +224,7 @@ class VideoClips(object):
         total_frames = len(video_pts) * (float(frame_rate) / fps)
         idxs = VideoClips._resample_video_idx(int(math.floor(total_frames)), fps, frame_rate)
         video_pts = video_pts[idxs]
-        clips = unfold(video_pts, num_frames, step)
+        clips = unfold(video_pts, num_frames, step) # get each clips view
         if not clips.numel():
             warnings.warn(
                 "There aren't enough frames in the current video to get a clip for the given clip length and "
@@ -227,21 +243,21 @@ class VideoClips(object):
         last few frames in a video can potentially be dropped.
 
         Args:
-            num_frames (int): number of frames for the clip
-            step (int): distance between two clips
+            num_frames (int): number of frames for the clip: clip_length_in_frames
+            step (int): distance between two clips: frames_between_clips
             frame_rate (int, optional): The frame rate
         """
         self.num_frames = num_frames
         self.step = step
         self.frame_rate = frame_rate
-        self.clips = []
-        self.resampling_idxs = []
+        self.clips = [] # a 2-dim list
+        self.resampling_idxs = [] # the shape is the same as self.clops
         for video_pts, fps in zip(self.video_pts, self.video_fps):
             clips, idxs = self.compute_clips_for_video(video_pts, num_frames, step, fps, frame_rate)
             self.clips.append(clips)
             self.resampling_idxs.append(idxs)
-        clip_lengths = torch.as_tensor([len(v) for v in self.clips])
-        self.cumulative_sizes = clip_lengths.cumsum(0).tolist()
+        clip_lengths = torch.as_tensor([len(v) for v in self.clips]) # tensor.shape is (1, number_of_videos), each elemetns is the number of clips for each video
+        self.cumulative_sizes = clip_lengths.cumsum(0).tolist() # number of clips for videos
 
     def __len__(self):
         return self.num_clips()
