@@ -257,7 +257,10 @@ class VideoClips(object):
             self.clips.append(clips)
             self.resampling_idxs.append(idxs)
         clip_lengths = torch.as_tensor([len(v) for v in self.clips]) # tensor.shape is (1, number_of_videos), each elemetns is the number of clips for each video
-        self.cumulative_sizes = clip_lengths.cumsum(0).tolist() # number of clips for videos
+        self.cumulative_sizes = clip_lengths.cumsum(0).tolist()
+        """
+        Returns the cumulative sum of elements of input in the dimension dim.
+        """
 
     def __len__(self):
         return self.num_clips()
@@ -311,6 +314,7 @@ class VideoClips(object):
         if idx >= self.num_clips():
             raise IndexError("Index {} out of range " "({} number of clips)".format(idx, self.num_clips()))
         video_idx, clip_idx = self.get_clip_location(idx)
+        # `video_idx` is the idx of video, and `clip_idx` is the idx of clip in video
         video_path = self.video_paths[video_idx]
         clip_pts = self.clips[video_idx][clip_idx]
 
