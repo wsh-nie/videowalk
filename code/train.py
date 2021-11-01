@@ -93,10 +93,10 @@ def main(args):
             return Kinetics400(
                 traindir if is_train else valdir,
                 frames_per_clip=args.clip_len, # set 4, but default 8
-                step_between_clips=1, # ???
+                step_between_clips=1, # ??? each pair of near subclips in a video has overlapped seriously 
                 transform=transform_train,
                 extensions=('mp4'),
-                frame_rate=args.frame_skip,
+                frame_rate=args.frame_skip, # set 8
                 # cached=cached,
                 _precomputed_metadata=cached
             )
@@ -120,6 +120,9 @@ def main(args):
         cached = dict(video_paths=dataset.video_clips.video_paths,
                 video_fps=dataset.video_clips.video_fps,
                 video_pts=dataset.video_clips.video_pts)
+        """
+        There is no need to set a dummy Dataload to summarize timestamps and fps for each video anymore.
+        """
         dataset = make_dataset(is_train=True, cached=cached)
         dataset.transform = transform_train
     else:
@@ -132,6 +135,9 @@ def main(args):
     
     if hasattr(dataset, 'video_clips'):
         dataset.video_clips.compute_clips(args.clip_len, 1, frame_rate=args.frame_skip)
+        """
+        execute VideoClips.computer_clips, 
+        """
         
     print("Took", time.time() - st)
 
@@ -139,6 +145,13 @@ def main(args):
         torch.manual_seed(0)
         if hasattr(dataset, 'video_clips'):
             _sampler = RandomClipSampler #UniformClipSampler
+            """
+            Samples at most `max_video_clips_per_video` clips for each video randomly
+
+            Args:
+                video_clips (VideoClips): video clips to sample from
+                max_clips_per_video (int): maximum number of clips to be sampled per video
+            """
             return _sampler(dataset.video_clips, args.clips_per_video)
         else:
             return torch.utils.data.sampler.RandomSampler(dataset) if is_train else None
