@@ -19,8 +19,8 @@ class CRW(nn.Module):
         self.temperature = getattr(args, 'temp', getattr(args, 'temperature', 0.07))
 
         self.encoder = utils.make_encoder(args).to(self.args.device)
-        self.infer_dims()
-        self.selfsim_fc = self.make_head(depth=getattr(args, 'head_depth', 0))
+        self.infer_dims() # get self.enc_hid_dim(number of feature channel) and self.map_scale(number of downsampling)
+        self.selfsim_fc = self.make_head(depth=getattr(args, 'head_depth', 0)) # depth +2 layers of [nn.linear(), nn.Relu()]
 
         self.xent = nn.CrossEntropyLoss(reduction="none")
         self._xent_targets = dict()
@@ -40,13 +40,16 @@ class CRW(nn.Module):
         self.map_scale = in_sz // dummy_out.shape[-1]
 
     def make_head(self, depth=1):
+        """
+        return a nn.Sequential instance which consists of some blocks(build with [nn.linear(), nn.Relu()]). 
+        """
         head = []
         if depth >= 0:
             dims = [self.enc_hid_dim] + [self.enc_hid_dim] * depth + [128]
             for d1, d2 in zip(dims, dims[1:]):
                 h = nn.Linear(d1, d2)
                 head += [h, nn.ReLU()]
-            head = head[:-1]
+            head = head[:-1] # exclude the last layer [nn.Linear(self.enc_hid_dim, 128), nn.ReLU()]
 
         return nn.Sequential(*head)
 
@@ -55,11 +58,11 @@ class CRW(nn.Module):
         return A * mask
 
     def affinity(self, x1, x2):
-        in_t_dim = x1.ndim
+        in_t_dim = x1.ndim # the number of dimensions of tensor.
         if in_t_dim < 4:  # add in time dimension if not there
             x1, x2 = x1.unsqueeze(-2), x2.unsqueeze(-2)
 
-        A = torch.einsum('bctn,bctm->btnm', x1, x2)
+        A = torch.einsum('bctn,bctm->btnm', x1, x2) # Calculate the similarity matrix of adjacent nodes
         # if self.restrict is not None:
         #     A = self.restrict(A)
 
@@ -72,7 +75,7 @@ class CRW(nn.Module):
             A = self.zeroout_diag(A)
 
         if do_dropout and self.edgedrop_rate > 0:
-            A[torch.rand_like(A) < self.edgedrop_rate] = -1e20
+            A[torch.rand_like(A) < self.edgedrop_rate] = -1e20 # Returns a random tensor with the same size as input.
 
         if do_sinkhorn:
             return utils.sinkhorn_knopp((A/self.temperature).exp(), 
@@ -92,8 +95,8 @@ class CRW(nn.Module):
                 -- 'maps'  (B x N x C x T x H x W), node feature maps
         '''
         B, N, C, T, h, w = x.shape
-        maps = self.encoder(x.flatten(0, 1))
-        H, W = maps.shape[-2:]
+        maps = self.encoder(x.flatten(0, 1)) # shape of x is [B*N, C, T, h, w], shape of maps is [B*N, enc_hid_dim, T,  Feature_Map_H, Feature_Maps_W]
+        H, W = maps.shape[-2:] # size of features map
 
         if self.featdrop_rate > 0:
             maps = self.featdrop(maps)
@@ -104,13 +107,16 @@ class CRW(nn.Module):
             N, H, W = maps.shape[0] // B, 1, 1
 
         # compute node embeddings by spatially pooling node feature maps
-        feats = maps.sum(-1).sum(-1) / (H*W)
-        feats = self.selfsim_fc(feats.transpose(-1, -2)).transpose(-1,-2)
-        feats = F.normalize(feats, p=2, dim=1)
+        feats = maps.sum(-1).sum(-1) / (H*W) # [B*N, end_hid_dim, T, 1]
+        feats = self.selfsim_fc(feats.transpose(-1, -2)).transpose(-1,-2)# [nn.Linear(), nn.ReLU()]
+        feats = F.normalize(feats, p=2, dim=1) # normalize at dim=1
     
-        feats = feats.view(B, N, feats.shape[1], T).permute(0, 2, 3, 1)
+        feats = feats.view(B, N, feats.shape[1], T).permute(0, 2, 3, 1) # split batch sizes and number of Nodes
         maps  =  maps.view(B, N, *maps.shape[1:])
-
+        """
+        `maps` is the result of the input image through the encoder.
+        `feats` is the result of a series of full connections after averaging each pixel of the `maps`.
+        """
         return feats, maps
 
     def forward(self, x, just_feats=False,):
@@ -120,13 +126,17 @@ class CRW(nn.Module):
            N=1 -> list of images
         '''
         B, T, C, H, W = x.shape
-        _N, C = C//3, 3
+        _N, C = C//3, 3 # _N is number of node
     
         #################################################################
         # Pixels to Nodes 
         #################################################################
-        x = x.transpose(1, 2).view(B, _N, C, T, H, W)
-        q, mm = self.pixels_to_nodes(x)
+        x = x.transpose(1, 2).view(B, _N, C, T, H, W) # swap `T` and `C` dim and split `C` into `_N` and new `C`
+        q, mm = self.pixels_to_nodes(x) 
+        """
+        mm=encoder(x), shape = [B,N,enc_hid_dim, T,  Feature_Map_H, Feature_Maps_W];
+        q=FC(mm.average(sum(H,W))), shape=[B,end_hid_dim,T,N]
+        """
         B, C, T, N = q.shape
 
         if just_feats:
@@ -137,14 +147,14 @@ class CRW(nn.Module):
         # Compute walks 
         #################################################################
         walks = dict()
-        As = self.affinity(q[:, :, :-1], q[:, :, 1:])
-        A12s = [self.stoch_mat(As[:, i], do_dropout=True) for i in range(T-1)]
+        As = self.affinity(q[:, :, :-1], q[:, :, 1:]) # get the similarity matrix of adjacent nodes, [B,T-1,N,N]
+        A12s = [self.stoch_mat(As[:, i], do_dropout=True) for i in range(T-1)] # Sequentially split the similarity matrix between frame by frame, [[B,N,N],...]
 
         #################################################### Palindromes
         if not self.sk_targets:  
-            A21s = [self.stoch_mat(As[:, i].transpose(-1, -2), do_dropout=True) for i in range(T-1)]
+            A21s = [self.stoch_mat(As[:, i].transpose(-1, -2), do_dropout=True) for i in range(T-1)] # Split the similarity matrix between frames in reverse order
             AAs = []
-            for i in list(range(1, len(A12s))):
+            for i in list(range(1, len(A12s))): # shorter path 1<->1; 12<->21; ...
                 g = A12s[:i+1] + A21s[:i+1][::-1]
                 aar = aal = g[0]
                 for _a in g[1:]:
@@ -153,7 +163,7 @@ class CRW(nn.Module):
                 AAs.append((f"l{i}", aal) if self.flip else (f"r{i}", aar))
     
             for i, aa in AAs:
-                walks[f"cyc {i}"] = [aa, self.xent_targets(aa)]
+                walks[f"cyc {i}"] = [aa, self.xent_targets(aa)] # shorter path similarity matrix and step of `aa`
 
         #################################################### Sinkhorn-Knopp Target (experimental)
         else:   
@@ -171,9 +181,9 @@ class CRW(nn.Module):
         xents = [torch.tensor([0.]).to(self.args.device)]
         diags = dict()
 
-        for name, (A, target) in walks.items():
-            logits = torch.log(A+EPS).flatten(0, -2)
-            loss = self.xent(logits, target).mean()
+        for name, (A, target) in walks.items(): # for each shorter path
+            logits = torch.log(A+EPS).flatten(0, -2) 
+            loss = self.xent(logits, target).mean() # # nn.CrossEntropyLoss
             acc = (torch.argmax(logits, dim=-1) == target).float().mean()
             diags.update({f"{H} xent {name}": loss.detach(),
                           f"{H} acc {name}": acc})
@@ -193,12 +203,12 @@ class CRW(nn.Module):
         return q, loss, diags
 
     def xent_targets(self, A):
-        B, N = A.shape[:2]
+        B, N = A.shape[:2] # A.shape is [B,N,N]
         key = '%s:%sx%s' % (str(A.device), B,N)
 
         if key not in self._xent_targets:
-            I = torch.arange(A.shape[-1])[None].repeat(B, 1)
-            self._xent_targets[key] = I.view(-1).to(A.device)
+            I = torch.arange(A.shape[-1])[None].repeat(B, 1) #[B,N]
+            self._xent_targets[key] = I.view(-1).to(A.device) #[B*N]:[0,1,...N-1,0,...]
 
         return self._xent_targets[key]
 
