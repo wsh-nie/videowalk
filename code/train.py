@@ -94,12 +94,12 @@ def main(args):
                 traindir if is_train else valdir,
                 frames_per_clip=args.clip_len, # set 4, but default 8
                 step_between_clips=1, # ??? each pair of near subclips in a video has overlapped seriously 
-                transform=transform_train,
+                transform=transform_train, # execute at yield data
                 extensions=('mp4'),
                 frame_rate=args.frame_skip, # set 8
                 # cached=cached,
                 _precomputed_metadata=cached
-            )
+            ) # each video has (((10*args.frame_skip)-args.clip_len)/1+1) clips
         elif os.path.isdir(args.data_path): # HACK assume image dataset if data path is a directory
             return torchvision.datasets.ImageFolder(
                 root=args.data_path,

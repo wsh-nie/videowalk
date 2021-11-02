@@ -135,7 +135,7 @@ class CRW(nn.Module):
         q, mm = self.pixels_to_nodes(x) 
         """
         mm=encoder(x), shape = [B,N,enc_hid_dim, T,  Feature_Map_H, Feature_Maps_W];
-        q=FC(mm.average(sum(H,W))), shape=[B,end_hid_dim,T,N]
+        q=FC(mm.average(sum(H,W))), shape=[B,end_hid_dim_after_FC,T,N]
         """
         B, C, T, N = q.shape
 
