@@ -235,17 +235,17 @@ class SampleFrames:
             assert results['start_index'] == 0
             frame_inds = self.get_seq_frames(total_frames)
         else:
-            clip_offsets = self._sample_clips(total_frames)
+            clip_offsets = self._sample_clips(total_frames) #get the start index of each clip
             frame_inds = clip_offsets[:, None] + np.arange(
                 self.clip_len)[None, :] * self.frame_interval
-            frame_inds = np.concatenate(frame_inds)
+            frame_inds = np.concatenate(frame_inds) # Convert a 2D matrix to 1D by row to get each frame index
 
             if self.temporal_jitter:
                 perframe_offsets = np.random.randint(
                     self.frame_interval, size=len(frame_inds))
                 frame_inds += perframe_offsets
 
-            frame_inds = frame_inds.reshape((-1, self.clip_len))
+            frame_inds = frame_inds.reshape((-1, self.clip_len)) # Convert to 2D
             if self.out_of_bound_opt == 'loop':
                 frame_inds = np.mod(frame_inds, total_frames)
             elif self.out_of_bound_opt == 'repeat_last':
@@ -258,7 +258,7 @@ class SampleFrames:
                 raise ValueError('Illegal out_of_bound option.')
 
             start_index = results['start_index']
-            frame_inds = np.concatenate(frame_inds) + start_index
+            frame_inds = np.concatenate(frame_inds) + start_index # Convert 1D
 
         results['frame_inds'] = frame_inds.astype(np.int)
         results['clip_len'] = self.clip_len
